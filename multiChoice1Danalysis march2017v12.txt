@@ -1,0 +1,285 @@
+//validee sur ImageJ1.49g
+requires("1.49g")
+
+//variables
+//zvi 200-9000 et tif 75X 6000-100000
+inf=200;
+sup=9000;
+
+//functions
+//à copier dans les segment d'intérêt
+//title = "[Progress]";
+//run("Text Window...", "name="+ title +" width=25 height=2 monospaced");
+//à mettre dans la boucle
+//print(title, "\\Update:"+i+"/"+100+" ("+(i*100)/100+"%)\n"+getBar(i, 100));
+//à mettre à la sortie de la boucle
+//print(title, "\\Close");
+
+  function getBar(p1, p2) {
+        n = 20;
+        bar1 = "--------------------";
+        bar2 = "####################";
+        index = round(n*(p1/p2));
+        if (index<1) index = 1;
+        if (index>n-1) index = n-1;
+        return substring(bar2, 0, index) + substring(bar1, index+1, n);
+  }
+
+run("Set Measurements...", "  center fit invert redirect=None decimal=2");
+
+/*récupération du chemin*/
+chemin = getDirectory("*video files directory:");
+
+/*récupération de la list des fichiers présents dans le répertoire*/
+liste_fichiers = getFileList(chemin);
+
+/*initiation de l'analyse, préparation des dossiers*/
+File.makeDirectory(chemin + "results\\");
+File.makeDirectory(chemin + "results\\1D\\");
+  
+//###################################################
+Dialog.create("Analysis options");
+items = newArray("Auto M-mode", "Semi-auto M-mode", "diam. only");
+Dialog.addRadioButtonGroup("Type of analysis", items, 3, 1, "Semi-auto M-mode");
+Dialog.addCheckbox("Tif Hamamatsu", true)
+Dialog.addCheckbox("Save position control picture", true)
+Dialog.show;
+
+type_of_analysis = Dialog.getRadioButton;
+tif_zvi = Dialog.getCheckbox;
+control_pic = Dialog.getCheckbox;
+
+if(tif_zvi==1){inf=6000; sup=100000;}
+
+if(type_of_analysis=="diam. only"){
+	Dialog.create("Where to save heart diameter data?");
+	Dialog.addString("Filename:", "heart_diameters", 20);
+	Dialog.show;
+	filename_diam_only = Dialog.getString();
+}
+
+//###################################################
+/*définition des variables paramètrables*/
+Dialog.create("2D detection parameters");
+Dialog.addNumber("min heart size", inf);
+inf = Dialog.getNumber();
+Dialog.addNumber("max heart size", sup);
+sup = Dialog.getNumber();
+Dialog.show;
+
+
+
+//###################################################
+if(control_pic == 1){File.makeDirectory(chemin + "results\\1D\\pic_check\\")};
+
+title = "[Locating heart ROIs]";
+run("Text Window...", "name="+ title +" width=32 height=2 monospaced");
+
+//#############################################################################################################################################
+pos_array = newArray(liste_fichiers.length+1);
+
+//#################### exploration du dossier selectionne
+for (indice=0; indice<liste_fichiers.length; indice++) {
+	setBatchMode(true);
+	if(type_of_analysis == "Semi-auto M-mode"){setBatchMode(false);}
+	//open("C:\\Users\\MichaelRera\\Dropbox\\hamamatsu test\\essai film coeur\\mGS_75X_50hz_150x125_bin2_(00001).tif");
+	open(chemin + liste_fichiers[indice]);
+	titre = getTitle();
+	run("Tile");
+	print(title, "\\Update:"+(indice+1)+"/"+liste_fichiers.length+" ("+round(((indice+1)*100)/liste_fichiers.length)+"%)\n"+getBar(indice+1, liste_fichiers.length));
+	
+	selectWindow(titre);
+	//indépendance vis-à-vis des dimensions de la fenêtre
+	winW = getWidth();
+	winH = getHeight();
+	run("Smooth", "stack");
+
+	// détection de la zone occupée par le coeur sur la totalité du film
+	nb_images = nSlices;
+	run("Z Project...", "start=1 stop=1000 projection=[Max Intensity]");
+	
+	//setAutoThreshold();
+	//run("Threshold...");
+	
+	if (tif_zvi==1) {
+		//remplacement du Li dark, par Mean dark suite aux mesures du 10 octobre
+		//setAutoThreshold("Li dark");
+		setAutoThreshold("Mean dark");
+   } else {
+      setAutoThreshold();
+   }
+	
+	run("Convert to Mask");
+	run("Set Measurements...", "area mean min center fit invert redirect=None decimal=3");
+	run("Analyze Particles...", "size=" + inf + "-" + sup + " circularity=0.00-0.99 pixel show=Ellipses display clear include add");
+	//roiManager("Add");
+
+	selectWindow(titre);
+	//tracé zone d'acquisition
+	
+	//verif que le premier objet est bien le segment anterieur du corps
+	X = getResult("XM",0);
+	//variable correc ajoutée 07 10 2014 pour corriger pb mesure pas de l'objet le plus à gauche
+	correc = 0;
+	//######################################################################################################################
+	if(nResults>1 && (type_of_analysis!="Semi-auto M-mode")){ 
+		for(t = 0; t <= nResults; t++){
+			Y = getResult("XM",t-1);
+			Z = minOf(X, Y);
+			if(Z<X){
+				X = getResult("XM",t-1);
+				correc = t-1;
+			}
+		}
+		if (tif_zvi==1 ) {
+			selectWindow(titre);
+			run("Z Project...", "projection=[Average Intensity]");
+			//setAutoThreshold();
+			//run("Threshold...");
+			setAutoThreshold("Mean dark");
+			run("Convert to Mask");
+			run("Set Measurements...", "area mean min center fit invert redirect=None decimal=3");
+			run("Analyze Particles...", "size=" + inf + "-" + sup + " circularity=0.00-0.99 pixel show=Ellipses display clear include add");
+			//roiManager("Add");
+
+			selectWindow(titre);
+			//tracé zone d'acquisition
+	
+			//verif que le premier objet est bien le segment anterieur du corps
+			X = getResult("XM",0);
+		}
+	}
+	
+	
+	
+	//reecrire ce bloc pour diminuer la taille du code (ajoute le 10 octobre 2014)
+	if(nResults <1){
+		selectWindow(titre);
+		run("Z Project...", "projection=[Average Intensity]");
+		//setAutoThreshold();
+		//run("Threshold...");
+	
+		if (tif_zvi==1) {
+			//remplacement du Li dark, par Mean dark suite aux mesures du 10 octobre
+			//setAutoThreshold("Li dark");
+			setAutoThreshold("Mean dark");
+		} else {
+			setAutoThreshold();
+		}
+	
+		run("Convert to Mask");
+		run("Set Measurements...", "area mean min center fit invert redirect=None decimal=3");
+		run("Analyze Particles...", "size=" + inf + "-" + sup + " circularity=0.00-0.99 pixel show=Ellipses display clear include add");
+		//roiManager("Add");
+
+		selectWindow(titre);
+		//tracé zone d'acquisition
+	
+		/verif que le premier objet est bien le segment anterieur du corps
+		X = getResult("XM",0);
+	}
+	// fin du bloc a re-ecrire
+	
+	setColor(255, 255, 0);
+	makeRectangle(X, 0, 1, winH);
+
+	//mise en attente pour repositionnement manuel
+	if(type_of_analysis=="Semi-auto M-mode"){
+	waitForUser("Manual positioning", "Move the region with right/left arrows. \nPress Ok to validate.");
+	selectWindow(titre);
+	run("Measure");
+	X = getResult("XM",nResults-1);
+	}
+
+	//#############################################################################################################################################
+	pos_array[indice+1] = X;
+	
+	if(type_of_analysis=="diam. only"){
+
+		ellipse_angle = getResult("Angle",correc);
+		ellipse_minor = getResult("Minor",correc);
+		
+		record = titre + "_" + ellipse_minor + "_" + ellipse_angle;
+		//record = titre + "_" + ellipse_minor
+		fichier = chemin + "results\\" + filename_diam_only + ".txt";
+		File.append(record, fichier);
+	}
+
+	//##################################################################
+	if(control_pic==1){
+		
+		selectWindow(titre);
+		run("Z Project...", "start=1 stop=1000 projection=[Max Intensity]");//##########################################
+		run("Select All");
+		run("Copy");
+		run("Internal Clipboard");
+	
+		setColor(255, 255, 0);
+		makeRectangle(X, 0, 1, winH);
+		roiManager("Add");
+		roiManager("Show All");
+			
+		if(type_of_analysis=="diam. only"){
+			drawString(ellipse_minor, X+20, winH / 2);
+			drawString(ellipse_angle, X+20, (winH / 2)+12);
+		}
+		run("Flatten");
+		saveAs("Jpeg", chemin + "results\\1D\\pic_check\\" + titre);
+		close();
+	}
+	while (nImages>0) { 
+          selectImage(nImages); 
+          close(); 
+    } 
+}
+
+print(title, "\\Close");
+
+if(type_of_analysis=="diam. only"){ exit();}
+
+//indice = 0;
+title = "[Building M-modes]";
+run("Text Window...", "name="+ title +" width=32 height=2 monospaced");
+//#################### boucle d'analyse
+for (indice=0; indice<liste_fichiers.length; indice++) {
+	setBatchMode(true);
+	open(chemin + liste_fichiers[indice]);
+	titre = getTitle();
+	
+	
+	run("Tile");
+	print(title, "\\Update:"+(indice+1)+"/"+liste_fichiers.length+" ("+round(((indice+1)*100)/liste_fichiers.length)+"%)\n"+getBar(indice+1, liste_fichiers.length));
+
+	newImage("Untitled", "8-bit White", nSlices, winH, 1);
+	wait(4);
+	id_Mmode = getImageID();
+
+	//M-mode production
+	selectWindow(titre);
+	nb_images = nSlices;
+	for (i=0; i<nb_images; i++){
+		setBatchMode(true);
+		//copier la zone de selection sur le film
+		selectWindow(titre);
+		setSlice(i+1);
+		makeRectangle(pos_array[indice+1], 0, 1, winH);
+		run("Copy");
+
+		//selection fenetre nouvelle image
+		//positionnement de la zone de selection à pixel_x = nslide
+		//collage
+		selectImage(id_Mmode);
+		makeRectangle(i, 0, 1, winH);
+		run("Paste");
+	}
+	
+	run("Select All");
+	//run("Invert");
+	saveAs("Tiff", chemin + "results\\1D\\" + titre);
+	while (nImages>0) { 
+          selectImage(nImages); 
+          close(); 
+      	} 
+}
+
+print(title, "\\Close");
